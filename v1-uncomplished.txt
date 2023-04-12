@@ -1,0 +1,146 @@
+extensions [ gis Csv]
+
+globals [
+  accessibility-index-reserve ; used in the creation of the accessibility index
+  healthcare-facilities-dataset
+  censusBlocks-dataset
+  boundary
+  GEOID-list
+]
+
+patches-own [
+  tract-id ; the unique ID associated with each census block
+  education ; the education percentage from the census dataset
+  senior-in-ct ; the senior population from the census dataset
+  average-senior-in-patch; 平均每个patch有多少老年人
+  num-patients
+  num-patients-today
+  OBJECTID
+  poverty ; the poverty percentage from the census dataset
+  disability ; the 1+ persons with disability percentage of household from the census dataset
+  healthInsurance ; the percentage of senior people with 1 type of health insurance
+  patient-here? ; is TRUE if there is a person on the patch...used in the creation of the population of people
+  seniorClinic-here? ; marked TRUE if there is a senior clinic on the patch
+  cancerValue
+  highBloodPressure
+  diabetesValue
+]
+
+breed [patients patient ]
+patients-own [
+  edu ;
+  fs ;
+  pov ;
+  healthcare-facilities-in-radius
+  patient-A? ; a person whether receive healthcare services or not
+  my-GEOID
+  cancer
+  bpHigh
+  diabetes
+  patient-healthcare-facility
+  patient-arrive-time
+  patient-duration
+]
+breed [healthcare-facilities healthcare-facility]
+healthcare-facilities-own [
+  num-physicians
+  
+]
+
+to setup ; load the gis data
+  clear-all
+  reset-ticks
+  set GEOID-list []
+  set healthcare-facilities-dataset gis:load-dataset "Data/SF_Health_Elder_Care_Project/SF_Health_Elder_Care_Project.shp"
+  set censusBlocks-dataset gis:load-dataset "Data/SF_BlockGrps_Elder_A_Project/SF_BlockGrps_Elder_A_Project.shp"
+  draw
+end
+
+to draw ; draw the map and apply the vector data to the raster in NetLogo for the socioeconomic data
+  clear-drawing
+  reset-ticks
+  gis:set-world-envelope (gis:envelope-union-of;set the study area
+    (gis:envelope-of healthcare-facilities-dataset)
+    (gis:envelope-of censusBlocks-dataset)
+  )
+
+  ask patches [set pcolor white]
+  ;  mark-notSeniorClinics
+  gis:set-drawing-color green
+  gis:draw healthcare-facilities-dataset 3
+;  mark-seniorClinics
+  gis:set-drawing-color black
+  gis:draw censusBlocks-dataset   0.01
+
+;  show gis:property-names censusBlocks
+;  gis:apply-coverage censusBlocks "GEOID" GEOID
+;  gis:apply-coverage censusBlocks "M_F_ELDER" total-senior
+;  gis:apply-coverage censusBlocks "OBJECTID" ObjectID
+  foreach gis:feature-list-of censusBlocks-dataset[ ? ->
+    ask patches gis:intersecting ? [
+      set tract-id gis:property-value ? "GEOID"
+    ]
+  ]
+  load-patch-data
+end
+
+to load-patch-data
+  ;sample: show sort-by [ [string1 string2] -> length string1 < length string2 ] ["Grumpy" "Doc" "Happy"] => ["Doc" "Happy" "Grumpy"]
+  ;sample: loop [if not can-move? 1 [ stop ] fd 1]
+  ifelse file-exists? "./Data/SF_BlockGrps_Elder_A_Project/censusblocks_attributes.txt"
+  [
+    file-open "./Data/SF_BlockGrps_Elder_A_Project/censusblocks_attributes.csv"
+    while [not file-at-end?]
+    [
+      let line csv:from-row file-read-line
+      let GEOID item 1 line
+      set GEOID-list lput GEOID GEOID-list
+;      show GEOID
+      let M_F_ELDER item 22 line
+      ; 给每个patch读取census tract数据，确保每个ct里的patch,其senior人数加和为总数，其他值保持一致
+      
+      ask patches with [tract-id = GEOID][
+        set senior-in-ct M_F_ELDER
+        set average-senior-in-patch (senior-in-ct / (count patches with [tract-id = GEOID]))
+        set num-patients round(average-senior-in-patch * patient-ratio / 100)
+        let num-patients-variation (random-float 0.02 - 0.01)
+        set num-patients-today round(num-patients * (0.019 + num-patients-variation));https://www.ncbi.nlm.nih.gov/books/NBK215400/ => Mean number of senior patients per day = (7 visits per year) / (365 days per year) = 0.019 senior patients per day (Note that these estimates are based on several assumptions, such as seniors in San Francisco having similar healthcare utilization patterns as the national average. )
+        ;可以继续加属性值
+      ]
+    ]
+    print "set up patches with attributes completed!"
+    file-close
+  ]
+  [user-message "There is no txt file for census blocks"]
+end
+
+to make-patients
+  ;senior-pops 134981
+  foreach GEOID-list [geoid ->
+    let patches-with-tract patches with [tract-id = geoid]
+    ;show patches-with-tract
+    ask patches-with-tract [
+;      show num-patients-today
+      if num-patients-today > 0 [
+        sprout-patients num-patients-today[
+        set size 0.3
+        set shape "person"
+          set patient-arrive-time (random-float 9 + 8);patients arrive time between 8am - 5pm
+          set patient-duration ((random 175 + 25) / 100) ; duration between 15min - 2h
+          let selected-patch one-of patches-with-tract
+          set edu [education] of selected-patch
+          set pov [poverty] of selected-patch
+          set cancer [cancerValue] of selected-patch
+          set bpHigh [highBloodPressure] of selected-patch
+          set diabetes [diabetesValue] of selected-patch
+          ;set other attributes for each patient
+        ]
+      ]
+    ]
+  ]
+  print "set up patients completed!"
+end
+
+to make-healthcare-facilities
+   
+end
